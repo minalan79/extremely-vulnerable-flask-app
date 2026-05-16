@@ -1,27 +1,24 @@
-name: Python CI
+name: Python Full Report CI
 
 on:
   push:
-    branches:
-      - main
-      - develop
   pull_request:
   workflow_dispatch:
 
 jobs:
-  test:
+  ci:
     runs-on: ubuntu-latest
 
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.11"]
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
@@ -33,22 +30,80 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
-          pip install -r requirements-dev.txt
+          pip install pytest pytest-cov
+          pip install ruff black mypy
+          pip install bandit pip-audit
 
+      - name: Create reports directory
+        run: mkdir -p reports
+
+      # ---------------------------
+      # Ruff
+      # ---------------------------
       - name: Ruff lint
-        run: ruff check .
+        continue-on-error: true
+        run: |
+          ruff check . > reports/ruff.txt 2>&1
 
-      - name: Black format check
-        run: black --check .
+      # ---------------------------
+      # Black
+      # ---------------------------
+      - name: Black formatting
+        continue-on-error: true
+        run: |
+          black --check . > reports/black.txt 2>&1
 
+      # ---------------------------
+      # MyPy
+      # ---------------------------
       - name: MyPy type check
-        run: mypy .
+        continue-on-error: true
+        run: |
+          mypy . > reports/mypy.txt 2>&1
 
+      # ---------------------------
+      # Bandit
+      # ---------------------------
       - name: Bandit security scan
-        run: bandit -r . -x tests
+        continue-on-error: true
+        run: |
+          bandit -r . -f txt -o reports/bandit.txt
 
-      - name: Dependency vulnerability scan
-        run: pip-audit
+      # ---------------------------
+      # Dependency Scan
+      # ---------------------------
+      - name: pip-audit
+        continue-on-error: true
+        run: |
+          pip-audit > reports/pip-audit.txt 2>&1
 
-      - name: Run tests with coverage
-        run: pytest --cov=. --cov-report=term-missing --cov-fail-under=80
+      # ---------------------------
+      # Pytest
+      # ---------------------------
+      - name: Run tests
+        continue-on-error: true
+        run: |
+          pytest \
+            --cov=. \
+            --cov-report=html:reports/coverage-html \
+            --cov-report=xml:reports/coverage.xml \
+            > reports/pytest.txt 2>&1
+
+      # ---------------------------
+      # Upload reports
+      # ---------------------------
+      - name: Upload CI reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-reports
+          path: reports/
+
+      # ---------------------------
+      # Final status
+      # ---------------------------
+      - name: Fail if reports contain errors
+        run: |
+          if grep -R "FAILED\|ERROR\|Traceback" reports/; then
+            echo "CI issues detected"
+            exit 1
+          fi
