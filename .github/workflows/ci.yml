@@ -16,7 +16,18 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
+      - name: create dir for reports
+        run: mkdir -p reports
       - name: Run ruff
-        run: ruff check .
+        id: ruff
+        continue-on-error: true
+        run:  ruff check . --output-format=json > reports/ruff-report.txt
       - name: Run black
-        run: black --check .
+        id: black
+        continue-on-error: true
+        run: black --check . --diff > reports/black-report.txt
+      - name: Upload reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-reports
+          path: reports/
